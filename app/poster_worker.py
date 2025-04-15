@@ -38,32 +38,30 @@ async def send_post(client, post):
             parse_mode='html'
         )
 
-def main_loop():
+def main_once():
     client = TelegramClient(session_name, api_id, api_hash)
     client.start()
-    print('Telethon client started. Waiting for scheduled posts...')
-    while True:
-        now = datetime.now()
-        conn = get_db()
-        c = conn.cursor()
-        c.execute(
-            "SELECT * FROM posts WHERE status='pending' AND scheduled_at IS NOT NULL AND scheduled_at<=? ORDER BY scheduled_at ASC",
-            (now.strftime("%Y-%m-%d %H:%M:%S"),)
-        )
-        posts = c.fetchall()
-        for post in posts:
-            try:
-                print(f"Sending post id={post['id']} scheduled_at={post['scheduled_at']}")
-                client.loop.run_until_complete(send_post(client, post))
-                c.execute("UPDATE posts SET status='sent', sent_at=? WHERE id=?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), post['id']))
-                conn.commit()
-            except FloodWaitError as e:
-                print(f"FloodWaitError: sleeping for {e.seconds} seconds")
-                time.sleep(e.seconds)
-            except Exception as e:
-                print(f"Error sending post id={post['id']}: {e}")
-        conn.close()
-        time.sleep(60)
+    print('Telethon client started. Checking for scheduled posts...')
+    now = datetime.now()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "SELECT * FROM posts WHERE status='pending' AND scheduled_at IS NOT NULL AND scheduled_at<=? ORDER BY scheduled_at ASC",
+        (now.strftime("%Y-%m-%d %H:%M:%S"),)
+    )
+    posts = c.fetchall()
+    for post in posts:
+        try:
+            print(f"Sending post id={post['id']} scheduled_at={post['scheduled_at']}")
+            client.loop.run_until_complete(send_post(client, post))
+            c.execute("UPDATE posts SET status='sent', sent_at=? WHERE id=?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), post['id']))
+            conn.commit()
+        except FloodWaitError as e:
+            print(f"FloodWaitError: sleeping for {e.seconds} seconds")
+            time.sleep(e.seconds)
+        except Exception as e:
+            print(f"Error sending post id={post['id']}: {e}")
+    conn.close()
 
 if __name__ == '__main__':
-    main_loop()
+    main_once()
