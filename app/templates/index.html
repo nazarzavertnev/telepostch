@@ -106,7 +106,7 @@
     </form>
     <div style="margin: 10px 0;">
         <label>
-            <input type="checkbox" id="toggle-media" checked>
+            <input type="checkbox" id="toggle-media">
             Показывать медиа для всех постов (может быть медленно)
         </label>
     </div>
@@ -137,9 +137,9 @@
             <b>Медиа:</b>
             {% for mtype, fname in post.media_files %}
                 {% if mtype == 'image' %}
-                    <img src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" alt="img">
+                    <img data-src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview lazy-media" alt="img">
                 {% elif mtype == 'video' %}
-                    <video src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" controls></video>
+                    <video data-src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview lazy-media" controls></video>
                 {% else %}
                     <a href="{{ url_for('media', post_id=post.id, filename=fname) }}" target="_blank">{{ fname }}</a>
                 {% endif %}
@@ -170,9 +170,9 @@
             <b>Медиа:</b>
             {% for mtype, fname in post.media_files %}
                 {% if mtype == 'image' %}
-                    <img src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" alt="img">
+                    <img data-src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview lazy-media" alt="img">
                 {% elif mtype == 'video' %}
-                    <video src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" controls></video>
+                    <video data-src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview lazy-media" controls></video>
                 {% else %}
                     <a href="{{ url_for('media', post_id=post.id, filename=fname) }}" target="_blank">{{ fname }}</a>
                 {% endif %}
@@ -343,7 +343,13 @@
             const mediaBlock = postBlock.querySelector('.media-block');
 
             // Показываем медиа только для редактируемого поста
-            if (mediaBlock) mediaBlock.classList.add('visible');
+            if (mediaBlock) {
+                mediaBlock.classList.add('visible');
+                // Лениво подгружаем медиа только для этой карточки
+                mediaBlock.querySelectorAll('.lazy-media').forEach(el => {
+                    if (!el.src && el.dataset.src) el.src = el.dataset.src;
+                });
+            }
 
             // Создаём форму
             const form = document.createElement('form');
@@ -375,7 +381,12 @@
                 form.remove();
                 textDiv.style.display = '';
                 dateDiv.style.display = '';
-                if (mediaBlock && !document.getElementById('toggle-media').checked) mediaBlock.classList.remove('visible');
+                if (mediaBlock && !document.getElementById('toggle-media').checked) {
+                    mediaBlock.classList.remove('visible');
+                    mediaBlock.querySelectorAll('.lazy-media').forEach(el => {
+                        if (el.src) el.src = '';
+                    });
+                }
             };
 
             form.onsubmit = function(e) {
@@ -401,7 +412,12 @@
                         textDiv.style.display = '';
                         dateDiv.style.display = '';
                         setRedistributeWarning(true);
-                        if (mediaBlock && !document.getElementById('toggle-media').checked) mediaBlock.classList.remove('visible');
+                        if (mediaBlock && !document.getElementById('toggle-media').checked) {
+                            mediaBlock.classList.remove('visible');
+                            mediaBlock.querySelectorAll('.lazy-media').forEach(el => {
+                                if (el.src) el.src = '';
+                            });
+                        }
                     } else {
                         alert('Ошибка сохранения!');
                     }
@@ -410,6 +426,17 @@
         });
     });
 
+    // Ленивая загрузка медиа
+    function loadMediaForAll() {
+        document.querySelectorAll('.media-block.visible .lazy-media').forEach(el => {
+            if (!el.src && el.dataset.src) el.src = el.dataset.src;
+        });
+    }
+    function unloadMediaForAll() {
+        document.querySelectorAll('.media-block .lazy-media').forEach(el => {
+            if (el.src) el.src = '';
+        });
+    }
     // Тоггл показа медиа
     function updateMediaBlocks() {
         const checked = document.getElementById('toggle-media').checked;
@@ -417,6 +444,8 @@
             if (checked) mb.classList.add('visible');
             else mb.classList.remove('visible');
         });
+        if (checked) loadMediaForAll();
+        else unloadMediaForAll();
     }
     document.getElementById('toggle-media').addEventListener('change', updateMediaBlocks);
     updateMediaBlocks();
