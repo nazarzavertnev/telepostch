@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Посты Telegram-канала</title>
+    <style>
+        .media-preview { max-width: 120px; max-height: 120px; display: inline-block; margin: 2px;}
+        .posts-flex { display: flex; flex-wrap: wrap; gap: 18px; }
+        .post-block {
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            margin: 0;
+            padding: 12px;
+            background: #fff;
+            box-shadow: 0 2px 8px #0001;
+            min-width: 320px;
+            max-width: 340px;
+            flex: 1 1 320px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            cursor: grab;
+            opacity: 1;
+            transition: box-shadow 0.2s, opacity 0.2s;
+        }
+        #sent-posts-list .post-block {
+            background: #f8f8f8;
+            cursor: default;
+            border-color: #ddd;
+        }
+        .post-block.dragging {
+            opacity: 0.6;
+            box-shadow: 0 4px 16px #2196f355;
+        }
+        .post-block.drag-over {
+            border: 2px dashed #2196f3;
+        }
+        .controls { margin-bottom: 5px; }
+        .post-text { background:#f9f9f9; padding:5px; border-radius:4px; white-space:pre-line; }
+        .calendar-container { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+        .mini-calendar { border: 1px solid #ddd; border-radius: 6px; padding: 6px; min-width: 240px; background: #fafbfc;}
+        .mini-calendar-title { font-weight: bold; text-align: center; margin-bottom: 4px; }
+        .mini-calendar-table { border-collapse: collapse; width: 100%; }
+        .mini-calendar-table th, .mini-calendar-table td { width: 14.28%; height: 28px; text-align: center; font-size: 13px; border: none; position: relative; }
+        .mini-calendar-today { border: 2px solid #2196f3; border-radius: 50%; }
+        .mini-calendar-dot { width: 6px; height: 6px; background: #2196f3; border-radius: 50%; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); }
+        .edit-btn { margin-left: 5px; }
+        .edit-form { margin-top: 5px; }
+        .edit-actions { margin-top: 5px; }
+        .redistribute-warning {
+            color: #fff;
+            background: #f44336;
+            padding: 6px 12px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-bottom: 10px;
+            font-weight: bold;
+            font-size: 15px;
+        }
+        @media (max-width: 900px) {
+            .calendar-container { flex-direction: column; }
+            .posts-flex { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Посты</h1>
+    <a href="{{ url_for('add_post') }}">Добавить пост</a>
+    <hr>
+    <h2>Календарь публикаций</h2>
+    <div id="calendar-container" class="calendar-container"></div>
+    <hr>
+    <h2>Распределить посты по датам</h2>
+    <div id="redistribute-warning" class="redistribute-warning" style="display:none;">
+        Внимание: после последнего изменения порядка постов не была выполнена <b>дистрибуция</b>!<br>
+        Нажмите "Распределить", чтобы обновить даты публикаций.
+    </div>
+    <form id="distribute-form" method="post" action="{{ url_for('distribute_posts') }}">
+        <label>Начальная дата:
+            <input type="date" name="start_date" required value="{{ start_date }}">
+        </label>
+        <label>Конечная дата:
+            <input type="date" name="end_date" required value="{{ end_date }}">
+        </label>
+        <button type="submit">Распределить</button>
+    </form>
+    <hr>
+    <div id="posts-list" class="posts-flex">
+    {% for post in posts if post.status != 'sent' %}
+    <div class="post-block" data-post-id="{{ post.id }}" draggable="true">
+        <div class="controls">
+            <form class="delete-form" method="post" action="{{ url_for('delete_post', post_id=post.id) }}" style="display:inline;">
+                <button type="submit" title="Удалить">🗑️</button>
+            </form>
+            <button class="edit-btn" data-id="{{ post.id }}">✏️</button>
+        </div>
+        <b class="post-date">{{ post.scheduled_at or 'Без даты' }}</b><br>
+        <div>
+            <span>Папка: {{ post.folder_path }}</span>
+        </div>
+        <div>
+            <b>Текст:</b>
+            <div class="post-text" data-field="text">{{ post.text|safe }}</div>
+        </div>
+        <div>
+            <b>Медиа:</b>
+            {% for mtype, fname in post.media_files %}
+                {% if mtype == 'image' %}
+                    <img src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" alt="img">
+                {% elif mtype == 'video' %}
+                    <video src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" controls></video>
+                {% else %}
+                    <a href="{{ url_for('media', post_id=post.id, filename=fname) }}" target="_blank">{{ fname }}</a>
+                {% endif %}
+            {% else %}
+                <span>Нет медиа</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div>Постов нет</div>
+    {% endfor %}
+    </div>
+
+    <hr>
+    <h2>Отправленные посты</h2>
+    <div id="sent-posts-list" class="posts-flex">
+    {% for post in posts if post.status == 'sent' %}
+    <div class="post-block" data-post-id="{{ post.id }}">
+        <b class="post-date">{{ post.scheduled_at or 'Без даты' }}</b><br>
+        <div>
+            <span>Папка: {{ post.folder_path }}</span>
+        </div>
+        <div>
+            <b>Текст:</b>
+            <div class="post-text" data-field="text">{{ post.text|safe }}</div>
+        </div>
+        <div>
+            <b>Медиа:</b>
+            {% for mtype, fname in post.media_files %}
+                {% if mtype == 'image' %}
+                    <img src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" alt="img">
+                {% elif mtype == 'video' %}
+                    <video src="{{ url_for('media', post_id=post.id, filename=fname) }}" class="media-preview" controls></video>
+                {% else %}
+                    <a href="{{ url_for('media', post_id=post.id, filename=fname) }}" target="_blank">{{ fname }}</a>
+                {% endif %}
+            {% else %}
+                <span>Нет медиа</span>
+            {% endfor %}
+        </div>
+        <div>
+            <b>Отправлено:</b> {{ post.sent_at or '—' }}
+        </div>
+    </div>
+    {% else %}
+    <div>Нет отправленных постов</div>
+    {% endfor %}
+    </div>
+<script>
+    // Drag-and-drop карточек постов
+    let dragSrcEl = null;
+    let postsList = document.getElementById('posts-list');
+
+    function handleDragStart(e) {
+        dragSrcEl = this;
+        this.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    }
+    function handleDragOver(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+    }
+    function handleDragEnter(e) {
+        if (this !== dragSrcEl) this.classList.add('drag-over');
+    }
+    function handleDragLeave(e) {
+        this.classList.remove('drag-over');
+    }
+    function handleDrop(e) {
+        e.stopPropagation();
+        if (dragSrcEl !== this) {
+            // Переместить DOM
+            let children = Array.from(postsList.children);
+            let srcIdx = children.indexOf(dragSrcEl);
+            let tgtIdx = children.indexOf(this);
+            if (srcIdx < tgtIdx) {
+                postsList.insertBefore(dragSrcEl, this.nextSibling);
+            } else {
+                postsList.insertBefore(dragSrcEl, this);
+            }
+            // Сохранить новый порядок на сервере
+            saveNewOrder();
+        }
+        this.classList.remove('drag-over');
+        dragSrcEl.classList.remove('dragging');
+        return false;
+    }
+    function handleDragEnd(e) {
+        this.classList.remove('dragging');
+        document.querySelectorAll('.post-block').forEach(function (item) {
+            item.classList.remove('drag-over');
+        });
+    }
+    function saveNewOrder() {
+        let ids = Array.from(postsList.children)
+            .filter(el => el.hasAttribute('data-post-id'))
+            .map(el => el.getAttribute('data-post-id'));
+        fetch('/reorder_posts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({order: ids})
+        }).then(resp => resp.json()).then(data => {
+            if (!data.success) {
+                alert('Ошибка сохранения порядка!');
+            } else {
+                setRedistributeWarning(true);
+            }
+        });
+    }
+
+    // Пометка о необходимости дистрибуции
+    function setRedistributeWarning(flag) {
+        localStorage.setItem('need_redistribute', flag ? '1' : '');
+        document.getElementById('redistribute-warning').style.display = flag ? '' : 'none';
+    }
+    // Показываем пометку если надо
+    if (localStorage.getItem('need_redistribute') === '1') {
+        document.getElementById('redistribute-warning').style.display = '';
+    }
+    // После дистрибуции убираем пометку
+    document.getElementById('distribute-form').addEventListener('submit', function() {
+        setRedistributeWarning(false);
+    });
+    document.querySelectorAll('.post-block').forEach(function(item) {
+        item.addEventListener('dragstart', handleDragStart, false);
+        item.addEventListener('dragenter', handleDragEnter, false);
+        item.addEventListener('dragover', handleDragOver, false);
+        item.addEventListener('dragleave', handleDragLeave, false);
+        item.addEventListener('drop', handleDrop, false);
+        item.addEventListener('dragend', handleDragEnd, false);
+    });
+
+    // AJAX-удаление поста без перезагрузки
+    document.querySelectorAll('.delete-form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (!confirm('Удалить пост?')) return;
+            fetch(this.action, {method: 'POST'})
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.success) {
+                        this.closest('.post-block').remove();
+                        setRedistributeWarning(true);
+                    } else {
+                        alert('Ошибка удаления!');
+                    }
+                });
+        });
+    });
+
+    // Инлайн-редактирование поста
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const postBlock = this.closest('.post-block');
+            const postId = this.dataset.id;
+            if (postBlock.querySelector('.edit-form')) return; // Уже открыта форма
+
+            const textDiv = postBlock.querySelector('.post-text');
+            const dateDiv = postBlock.querySelector('.post-date');
+            const oldText = textDiv.innerText;
+            const oldDate = dateDiv.innerText !== 'Без даты' ? dateDiv.innerText : '';
+
+            // Создаём форму
+            const form = document.createElement('form');
+            form.className = 'edit-form';
+            form.innerHTML = `
+                <textarea name="text" rows="4" style="width:98%">${oldText}</textarea><br>
+                <label>Дата публикации:
+                    <input type="datetime-local" name="scheduled_at" value="${oldDate ? oldDate.replace(' ', 'T') : ''}">
+                </label>
+                <div class="edit-actions">
+                    <button type="submit">Сохранить</button>
+                    <button type="button" class="cancel-edit">Отмена</button>
+                </div>
+            `;
+            textDiv.style.display = 'none';
+            dateDiv.style.display = 'none';
+            textDiv.parentNode.appendChild(form);
+
+            form.querySelector('.cancel-edit').onclick = function() {
+                form.remove();
+                textDiv.style.display = '';
+                dateDiv.style.display = '';
+            };
+
+            form.onsubmit = function(e) {
+                e.preventDefault();
+                fetch(`/edit/${postId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        text: form.text.value,
+                        scheduled_at: form.scheduled_at.value
+                    })
+                })
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.success) {
+                        textDiv.innerText = form.text.value;
+                        dateDiv.innerText = form.scheduled_at.value ? form.scheduled_at.value.replace('T', ' ') : 'Без даты';
+                        form.remove();
+                        textDiv.style.display = '';
+                        dateDiv.style.display = '';
+                        setRedistributeWarning(true);
+                    } else {
+                        alert('Ошибка сохранения!');
+                    }
+                });
+            };
+        });
+    });
+
+    // Календарь: до 18 месяцев в строку, мини-календари
+    const posts = [
+        {% for post in posts if post.scheduled_at and post.status != 'sent' %}
+            {date: "{{ post.scheduled_at[:10] }}"},
+        {% endfor %}
+    ];
+    function getMonthKey(d) {
+        return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2, '0');
+    }
+    function getMonthName(d) {
+        return d.toLocaleString('ru-RU', {month:'long', year:'numeric'});
+    }
+    function getDatesRange(posts) {
+        if (posts.length === 0) return [];
+        let dates = posts.map(p => p.date);
+        dates.sort();
+        let start = new Date(dates[0]);
+        let end = new Date(dates[dates.length-1]);
+        let days = [];
+        for(let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
+            days.push(new Date(d));
+        }
+        return days;
+    }
+    function formatDate(d) {
+    // Получаем YYYY-MM-DD в локальном времени
+        return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+    }   
+    function isToday(d) {
+        let now = new Date();
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    }
+    function buildMiniCalendar(month, year, postDates) {
+        // Найти первый день месяца
+        let firstDay = new Date(year, month, 1);
+        let lastDay = new Date(year, month + 1, 0);
+        let weeks = [];
+        let week = [];
+        // Пустые ячейки до первого дня недели (понедельник)
+        let empty = firstDay.getDay();
+        if (empty === 0) empty = 7; // Воскресенье - 7-й день
+        empty = empty - 1; // Понедельник - 1-й день
+        for(let i=0;i<empty;i++) week.push('');
+        for(let d=1; d<=lastDay.getDate(); d++) {
+            let dateObj = new Date(year, month, d);
+            week.push(dateObj);
+            if (week.length === 7) {
+                weeks.push(week);
+                week = [];
+            }
+        }
+        if (week.length > 0) {
+            while (week.length < 7) week.push('');
+            weeks.push(week);
+        }
+        // Рендер
+        let html = `<div class="mini-calendar">
+            <div class="mini-calendar-title">${firstDay.toLocaleString('ru-RU', {month:'long', year:'numeric'})}</div>
+            <table class="mini-calendar-table">
+                <tr>
+                    <th>Пн</th><th>Вт</th><th>Ср</th><th>Чт</th><th>Пт</th><th>Сб</th><th>Вс</th>
+                </tr>`;
+        for(let w of weeks) {
+            html += '<tr>';
+            for(let cell of w) {
+                if (cell === '') {
+                    html += '<td></td>';
+                } else {
+                    let hasPost = postDates.includes(formatDate(cell));
+                    let today = isToday(cell);
+                    html += `<td${today ? ' class="mini-calendar-today"' : ''}>${cell.getDate()}`;
+                    if (hasPost) html += `<div class="mini-calendar-dot"></div>`;
+                    html += `</td>`;
+                }
+            }
+            html += '</tr>';
+        }
+        html += '</table></div>';
+        return html;
+    }
+    function renderCalendar() {
+        const days = getDatesRange(posts);
+        if (days.length === 0) return;
+        const postDates = posts.map(p => p.date);
+        // Группируем по месяцам
+        let months = {};
+        days.forEach(d => {
+            let key = getMonthKey(d);
+            if (!months[key]) months[key] = [];
+            months[key].push(d);
+        });
+        // Сортируем ключи месяцев
+        let monthKeys = Object.keys(months).sort();
+        // Ограничим до 18 месяцев (последние 18)
+        if (monthKeys.length > 18) monthKeys = monthKeys.slice(-18);
+        const cal = document.getElementById('calendar-container');
+        cal.innerHTML = '';
+        monthKeys.forEach(key => {
+            let [year, month] = key.split('-').map(Number);
+            let html = buildMiniCalendar(month-1, year, postDates);
+            cal.insertAdjacentHTML('beforeend', html);
+        });
+    }
+    renderCalendar();
+</script>
+</body>
+</html>
