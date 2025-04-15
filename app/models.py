@@ -19,7 +19,8 @@ def init_db():
             scheduled_at DATETIME,
             sent_at DATETIME,
             status TEXT DEFAULT 'pending',
-            "order" INTEGER DEFAULT 0
+            "order" INTEGER DEFAULT 0,
+            type TEXT DEFAULT 'regular'
         )
     """)
     c.execute("""
@@ -32,7 +33,7 @@ def init_db():
     conn.close()
 
 class Post:
-    def __init__(self, id, text, folder_path, scheduled_at, sent_at, status, order=0):
+    def __init__(self, id, text, folder_path, scheduled_at, sent_at, status, order=0, type='regular'):
         self.id = id
         self.text = text
         self.folder_path = folder_path
@@ -40,6 +41,7 @@ class Post:
         self.sent_at = sent_at
         self.status = status
         self.order = order
+        self.type = type
 
     @staticmethod
     def from_row(row):
@@ -50,7 +52,8 @@ class Post:
             scheduled_at=row["scheduled_at"],
             sent_at=row["sent_at"],
             status=row["status"],
-            order=row["order"]
+            order=row["order"],
+            type=row["type"] if "type" in row.keys() else "regular"
         )
 
 def set_setting(key, value):

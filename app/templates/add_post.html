@@ -7,6 +7,12 @@
 <body>
     <h1>Добавить пост</h1>
     <form method="post" enctype="multipart/form-data">
+        <label>Тип поста:<br>
+            <select name="type">
+                <option value="regular">Обычный</option>
+                <option value="special">Специальный</option>
+            </select>
+        </label><br>
         <label>Текст поста:<br>
             <textarea name="text" rows="4" cols="50"></textarea>
         </label><br>

@@ -58,10 +58,11 @@ def add_post():
         for f in files:
             if f and f.filename:
                 f.save(os.path.join(post_folder, f.filename))
-        # Сохраняем в БД только имя папки
+        type_ = request.form.get('type', 'regular')
+        # Сохраняем в БД только имя папки и тип поста
         c.execute(
-            "INSERT INTO posts (text, folder_path, scheduled_at, status, \"order\") VALUES (?, ?, ?, ?, ?)",
-            (text, folder_name, scheduled_at, 'pending', next_order)
+            "INSERT INTO posts (text, folder_path, scheduled_at, status, \"order\", type) VALUES (?, ?, ?, ?, ?, ?)",
+            (text, folder_name, scheduled_at, 'pending', next_order, type_)
         )
         conn.commit()
         conn.close()
@@ -93,9 +94,10 @@ def edit_post(post_id):
     data = request.json
     text = data.get('text', '')
     scheduled_at = data.get('scheduled_at')
+    type_ = data.get('type', 'regular')
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE posts SET text=?, scheduled_at=? WHERE id=?", (text, scheduled_at, post_id))
+    c.execute("UPDATE posts SET text=?, scheduled_at=?, type=? WHERE id=?", (text, scheduled_at, type_, post_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -134,29 +136,92 @@ def distribute_posts():
     # Только неотправленные посты!
     c.execute("SELECT * FROM posts WHERE status != 'sent' ORDER BY \"order\" ASC, id ASC")
     posts = c.fetchall()
-    total_posts = len(posts)
-    if total_posts == 0:
+    if not posts:
         conn.close()
         return redirect(url_for('index'))
 
-    days = (end_date - start_date).days + 1
-    if total_posts == 1:
-        # Один пост — в первый день
-        scheduled_dates = [start_date]
-    else:
-        # Равномерное распределение постов по диапазону дат
-        scheduled_dates = [
-            start_date + timedelta(days=round(i * (days - 1) / (total_posts - 1)))
-            for i in range(total_posts)
-        ]
+    # Разделяем на специальные и обычные
+    specials = [p for p in posts if p["type"] == "special"]
+    regulars = [p for p in posts if p["type"] != "special"]
 
-    for idx, post in enumerate(posts):
-        date = scheduled_dates[idx]
-        # Случайное время между 20:00 и 21:00
-        hour = 20
-        minute = random.randint(0, 59)
-        scheduled_at = datetime.combine(date.date(), datetime.min.time()).replace(hour=hour, minute=minute)
-        c.execute("UPDATE posts SET scheduled_at=? WHERE id=?", (scheduled_at.strftime("%Y-%m-%d %H:%M:%S"), post["id"]))
+    days = (end_date - start_date).days + 1
+
+    # 1. Расставляем специальные посты строго по диапазону
+    special_dates = []
+    if specials:
+        N = len(specials)
+        for i, post in enumerate(specials):
+            date = start_date + timedelta(days=round(i * (days - 1) / (N - 1) if N > 1 else 0))
+            hour = 20
+            minute = random.randint(0, 59)
+            scheduled_at = datetime.combine(date.date(), datetime.min.time()).replace(hour=hour, minute=minute)
+            c.execute("UPDATE posts SET scheduled_at=? WHERE id=?", (scheduled_at.strftime("%Y-%m-%d %H:%M:%S"), post["id"]))
+            special_dates.append(scheduled_at)
+        special_dates.sort()
+    else:
+        special_dates = []
+
+    # 2. Расставляем обычные между специальными
+    if not specials:
+        # Если специальных нет — обычные равномерно по всему диапазону
+        total_posts = len(regulars)
+        if total_posts > 0:
+            for idx, post in enumerate(regulars):
+                date = start_date + timedelta(days=round(idx * (days - 1) / (total_posts - 1) if total_posts > 1 else 0))
+                hour = 20
+                minute = random.randint(0, 59)
+                scheduled_at = datetime.combine(date.date(), datetime.min.time()).replace(hour=hour, minute=minute)
+                c.execute("UPDATE posts SET scheduled_at=? WHERE id=?", (scheduled_at.strftime("%Y-%m-%d %H:%M:%S"), post["id"]))
+    else:
+        # Есть специальные — обычные равномерно между ними, по уникальным датам если возможно, не примыкая к спецпостам
+        intervals = []
+        # Интервал до первого спецпоста
+        if special_dates[0].date() > start_date.date():
+            intervals.append((start_date, special_dates[0]))
+        # Интервалы между спецпостами
+        for i in range(len(special_dates) - 1):
+            intervals.append((special_dates[i], special_dates[i+1]))
+        # Интервал после последнего спецпоста
+        if special_dates[-1].date() < end_date.date():
+            intervals.append((special_dates[-1], end_date + timedelta(days=0)))
+
+        # Собираем все доступные даты между спецпостами (исключая даты спецпостов и дни, примыкающие к ним)
+        available_dates = []
+        for a, b in intervals:
+            days_in_interval = (b - a).days
+            # Только если между спецпостами есть хотя бы 3 дня (иначе некуда вставлять обычные)
+            if days_in_interval > 2:
+                for d in range(2, days_in_interval):
+                    date = a + timedelta(days=d)
+                    if date.date() != a.date() and date.date() != b.date():
+                        available_dates.append(date)
+        
+        total_regulars = len(regulars)
+        total_dates = len(available_dates)
+        
+        if total_regulars == 0 or total_dates == 0:
+            pass  # Нет обычных постов или нет доступных дат
+        elif total_regulars <= total_dates:
+            # Назначаем по одной уникальной дате каждому посту
+            step = total_dates / total_regulars
+            for i in range(total_regulars):
+                date_index = int(round(i * step))
+                if date_index >= total_dates:  # Защита от выхода за границы
+                    date_index = total_dates - 1
+                date = available_dates[date_index]
+                hour = 20
+                minute = random.randint(0, 59)
+                scheduled_at = datetime.combine(date.date(), datetime.min.time()).replace(hour=hour, minute=minute)
+                c.execute("UPDATE posts SET scheduled_at=? WHERE id=?", (scheduled_at.strftime("%Y-%m-%d %H:%M:%S"), regulars[i]["id"]))
+        else:
+            # Постов больше, чем дат — распределяем равномерно по кругу
+            for i in range(total_regulars):
+                date = available_dates[i % total_dates]
+                hour = 20
+                minute = random.randint(0, 59)
+                scheduled_at = datetime.combine(date.date(), datetime.min.time()).replace(hour=hour, minute=minute)
+                c.execute("UPDATE posts SET scheduled_at=? WHERE id=?", (scheduled_at.strftime("%Y-%m-%d %H:%M:%S"), regulars[i]["id"]))
+
     conn.commit()
     conn.close()
     return redirect(url_for('index'))
@@ -169,6 +234,19 @@ def reorder_posts():
         return jsonify({'success': False, 'error': 'Invalid data'}), 400
     conn = get_db()
     c = conn.cursor()
+    for idx, post_id in enumerate(ids):
+        c.execute('UPDATE posts SET "order"=? WHERE id=?', (idx, post_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/sort_by_date', methods=['POST'])
+def sort_by_date():
+    conn = get_db()
+    c = conn.cursor()
+    # Только неотправленные посты сортируем
+    c.execute("SELECT id FROM posts WHERE status != 'sent' ORDER BY scheduled_at ASC, id ASC")
+    ids = [row['id'] for row in c.fetchall()]
     for idx, post_id in enumerate(ids):
         c.execute('UPDATE posts SET "order"=? WHERE id=?', (idx, post_id))
     conn.commit()
