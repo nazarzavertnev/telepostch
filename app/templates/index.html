@@ -57,9 +57,14 @@
             font-weight: bold;
             font-size: 15px;
         }
+        .media-block { display: none; }
+        .media-block.visible { display: block; }
+        .mobile-move-btns { display: none; }
         @media (max-width: 900px) {
             .calendar-container { flex-direction: column; }
             .posts-flex { flex-direction: column; }
+            .post-block { min-width: 98vw; max-width: 99vw; }
+            .mobile-move-btns { display: inline-block; }
         }
     </style>
 </head>
@@ -84,6 +89,12 @@
         </label>
         <button type="submit">Распределить</button>
     </form>
+    <div style="margin: 10px 0;">
+        <label>
+            <input type="checkbox" id="toggle-media" checked>
+            Показывать медиа для всех постов (может быть медленно)
+        </label>
+    </div>
     <hr>
     <div id="posts-list" class="posts-flex">
     {% for post in posts if post.status != 'sent' %}
@@ -93,6 +104,10 @@
                 <button type="submit" title="Удалить">🗑️</button>
             </form>
             <button class="edit-btn" data-id="{{ post.id }}">✏️</button>
+            <span class="mobile-move-btns">
+                <button class="move-up-btn" data-id="{{ post.id }}" title="Вверх">&#8593;</button>
+                <button class="move-down-btn" data-id="{{ post.id }}" title="Вниз">&#8595;</button>
+            </span>
         </div>
         <b class="post-date">{{ post.scheduled_at or 'Без даты' }}</b><br>
         <div>
@@ -102,7 +117,7 @@
             <b>Текст:</b>
             <div class="post-text" data-field="text">{{ post.text|safe }}</div>
         </div>
-        <div>
+        <div class="media-block">
             <b>Медиа:</b>
             {% for mtype, fname in post.media_files %}
                 {% if mtype == 'image' %}
@@ -135,7 +150,7 @@
             <b>Текст:</b>
             <div class="post-text" data-field="text">{{ post.text|safe }}</div>
         </div>
-        <div>
+        <div class="media-block visible">
             <b>Медиа:</b>
             {% for mtype, fname in post.media_files %}
                 {% if mtype == 'image' %}
@@ -233,13 +248,41 @@
     document.getElementById('distribute-form').addEventListener('submit', function() {
         setRedistributeWarning(false);
     });
+    // Drag-and-drop для desktop, кнопки для мобильных
+    function isMobile() {
+        return window.matchMedia("(max-width: 900px)").matches;
+    }
     document.querySelectorAll('.post-block').forEach(function(item) {
-        item.addEventListener('dragstart', handleDragStart, false);
-        item.addEventListener('dragenter', handleDragEnter, false);
-        item.addEventListener('dragover', handleDragOver, false);
-        item.addEventListener('dragleave', handleDragLeave, false);
-        item.addEventListener('drop', handleDrop, false);
-        item.addEventListener('dragend', handleDragEnd, false);
+        if (!isMobile()) {
+            item.addEventListener('dragstart', handleDragStart, false);
+            item.addEventListener('dragenter', handleDragEnter, false);
+            item.addEventListener('dragover', handleDragOver, false);
+            item.addEventListener('dragleave', handleDragLeave, false);
+            item.addEventListener('drop', handleDrop, false);
+            item.addEventListener('dragend', handleDragEnd, false);
+        }
+    });
+
+    // Мобильные кнопки перемещения
+    document.querySelectorAll('.move-up-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const block = this.closest('.post-block');
+            if (block.previousElementSibling) {
+                block.parentNode.insertBefore(block, block.previousElementSibling);
+                saveNewOrder();
+            }
+        });
+    });
+    document.querySelectorAll('.move-down-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const block = this.closest('.post-block');
+            if (block.nextElementSibling) {
+                block.parentNode.insertBefore(block.nextElementSibling, block);
+                saveNewOrder();
+            }
+        });
     });
 
     // AJAX-удаление поста без перезагрузки
@@ -271,6 +314,10 @@
             const dateDiv = postBlock.querySelector('.post-date');
             const oldText = textDiv.innerText;
             const oldDate = dateDiv.innerText !== 'Без даты' ? dateDiv.innerText : '';
+            const mediaBlock = postBlock.querySelector('.media-block');
+
+            // Показываем медиа только для редактируемого поста
+            if (mediaBlock) mediaBlock.classList.add('visible');
 
             // Создаём форму
             const form = document.createElement('form');
@@ -293,6 +340,7 @@
                 form.remove();
                 textDiv.style.display = '';
                 dateDiv.style.display = '';
+                if (mediaBlock && !document.getElementById('toggle-media').checked) mediaBlock.classList.remove('visible');
             };
 
             form.onsubmit = function(e) {
@@ -314,6 +362,7 @@
                         textDiv.style.display = '';
                         dateDiv.style.display = '';
                         setRedistributeWarning(true);
+                        if (mediaBlock && !document.getElementById('toggle-media').checked) mediaBlock.classList.remove('visible');
                     } else {
                         alert('Ошибка сохранения!');
                     }
@@ -321,6 +370,17 @@
             };
         });
     });
+
+    // Тоггл показа медиа
+    function updateMediaBlocks() {
+        const checked = document.getElementById('toggle-media').checked;
+        document.querySelectorAll('.media-block').forEach(mb => {
+            if (checked) mb.classList.add('visible');
+            else mb.classList.remove('visible');
+        });
+    }
+    document.getElementById('toggle-media').addEventListener('change', updateMediaBlocks);
+    updateMediaBlocks();
 
     // Календарь: до 18 месяцев в строку, мини-календари
     const posts = [

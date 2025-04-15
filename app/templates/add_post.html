@@ -11,7 +11,8 @@
             <textarea name="text" rows="4" cols="50"></textarea>
         </label><br>
         <label>Дата публикации (формат: YYYY-MM-DD HH:MM:SS, опционально):<br>
-            <input type="text" name="scheduled_at" placeholder="2024-06-15 20:30:00">
+            <input type="text" name="scheduled_at" id="scheduled_at" placeholder="2024-06-15 20:30:00" autocomplete="off">
+            <button type="button" onclick="setNow()">Сейчас +5</button>
         </label><br>
         <label>Медиафайлы (до 4 файлов):<br>
             <input type="file" name="media" multiple>
@@ -19,5 +20,18 @@
         <button type="submit">Сохранить</button>
     </form>
     <a href="{{ url_for('index') }}">Назад к списку</a>
+    <script>
+        function setNow() {
+            const pad = n => n.toString().padStart(2, '0');
+            const d = new Date();
+            const str = d.getFullYear() + '-' +
+                        pad(d.getMonth() + 1) + '-' +
+                        pad(d.getDate()) + ' ' +
+                        pad(d.getHours()) + ':' +
+                        pad(d.getMinutes() + 5) + ':' +
+                        pad(d.getSeconds());
+            document.getElementById('scheduled_at').value = str;
+        }
+    </script>
 </body>
 </html>
