@@ -6,12 +6,16 @@ from telethon.errors import FloodWaitError
 from models import get_db
 from telethon_config import api_id, api_hash, session_name, channel
 
-def get_media_files(folder_path):
-    if not os.path.exists(folder_path):
+# Absolute path to the posts folder
+UPLOAD_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), '../posts'))
+
+def get_media_files(folder_name):
+    abs_folder = os.path.join(UPLOAD_FOLDER, folder_name)
+    if not os.path.exists(abs_folder):
         return []
     files = []
-    for fname in sorted(os.listdir(folder_path)):
-        path = os.path.join(folder_path, fname)
+    for fname in sorted(os.listdir(abs_folder)):
+        path = os.path.join(abs_folder, fname)
         if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
             files.append(('photo', path))
         elif fname.lower().endswith(('.mp4', '.mov', '.avi', '.webm', '.mkv')):
@@ -20,19 +24,19 @@ def get_media_files(folder_path):
     return files
 
 async def send_post(client, post):
-    media_files = get_media_files(post['folder_path'])
+    media_files = get_media_files(post['folder_name'])
     text = post['text']
     if media_files:
         media_to_send = [path for mtype, path in media_files[:10]]
         await client.send_file(
-            entity=int(channel) if isinstance(channel, int) or channel.lstrip('-').isdigit() else channel,
+            entity=int(channel) if isinstance(channel, int) or str(channel).lstrip('-').isdigit() else channel,
             file=media_to_send,
             caption=text,
             parse_mode='html'
         )
     else:
         await client.send_message(
-            entity=int(channel) if isinstance(channel, int) or channel.lstrip('-').isdigit() else channel,
+            entity=int(channel) if isinstance(channel, int) or str(channel).lstrip('-').isdigit() else channel,
             message=text,
             parse_mode='html'
         )
