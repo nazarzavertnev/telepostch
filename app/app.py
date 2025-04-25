@@ -10,6 +10,43 @@ app.config['UPLOAD_FOLDER'] = os.path.abspath(os.path.join(os.path.dirname(__fil
 # Инициализация базы при запуске
 init_db()
 
+def process_text(text):
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    
+    processed = []
+    in_blockquote = False
+    
+    for i, para in enumerate(paragraphs):
+        # Обработка первого абзаца
+        if i == 0:
+            first_paragraph = para.split('\n')
+            if len(first_paragraph) >= 1:
+                if len(first_paragraph) == 1:
+                    processed.append(f"<b><u>{first_paragraph[0]}</u></b>")
+                else:
+                    processed.append(f"<b><u>{first_paragraph[0]}</u></b>\n{first_paragraph[1]}")
+            continue
+            
+        # Обработка строк с 🧬
+        if para.startswith('🧬'):
+            processed.append(f"<b>{para}</b>")
+            in_blockquote = True
+            continue
+            
+        # Обработка blockquote
+        if in_blockquote:
+            processed.append(f"<blockquote><i>{para}</i></blockquote>")
+            in_blockquote = False
+        else:
+            processed.append(para)
+            
+    # Замена упоминаний сервера
+    return '\n\n'.join(processed).replace(
+        '🍊server', 
+        '<a href="https://t.me/mandarin_server">🍊server</a>'
+    )
+
+
 def get_media_files(folder_name):
     abs_folder = os.path.join(app.config['UPLOAD_FOLDER'], folder_name)
     if not os.path.exists(abs_folder):
@@ -41,7 +78,8 @@ def index():
 @app.route('/add', methods=['GET', 'POST'])
 def add_post():
     if request.method == 'POST':
-        text = request.form['text']
+        raw_text = request.form['text']
+        text = process_text(raw_text)  # Обработка текста
         scheduled_at = request.form.get('scheduled_at')
         files = request.files.getlist('media')
         # Определяем максимальный order
@@ -92,12 +130,15 @@ def delete_post(post_id):
 @app.route('/edit/<int:post_id>', methods=['POST'])
 def edit_post(post_id):
     data = request.json
-    text = data.get('text', '')
+    raw_text = data.get('text', '')
+    text = process_text(raw_text)  # Обработка текста
     scheduled_at = data.get('scheduled_at')
     type_ = data.get('type', 'regular')
+    
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE posts SET text=?, scheduled_at=?, type=? WHERE id=?", (text, scheduled_at, type_, post_id))
+    c.execute("UPDATE posts SET text=?, scheduled_at=?, type=? WHERE id=?", 
+             (text, scheduled_at, type_, post_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
